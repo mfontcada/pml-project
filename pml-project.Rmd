@@ -1,0 +1,165 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Manuel Fontenla Cadavid"
+date: "24 de septiembre de 2015"
+output: html_document
+---
+
+## Summary
+
+The goal of this project is to predict the manner in which an exercise is executed. The data comes from an experiment where 6 participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways, with accelerometers on the belt, forearm, arm and dumbell. All the information collected with them could be used to predict the manner in which the participants did the exercise (the variable "classe").
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har
+
+## Libraries and data
+
+The previous steps of the project include install and load the neccesary libraries to build the model:
+
+```{r, cache = TRUE, eval = TRUE, message=FALSE}
+# Load libraries
+#install.packages("caret")
+library(caret)
+```
+
+Download the data:
+```{r, cache = TRUE, eval = FALSE}
+# Download data
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(fileURL, destfile = "pml-training.csv")
+fileURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(fileURL, destfile = "pml-testing.csv")
+```
+
+And load the data, with the training set that we use to build our model:
+```{r, cache = TRUE, eval = TRUE}
+# Load data
+# Training set
+training <- read.csv("pml-training.csv", row.names = 1)
+dim(training)
+```
+
+And the test set we will use to test our predictions:
+```{r, cache = TRUE, eval = TRUE}
+# Test set
+testing <- read.csv("pml-testing.csv", row.names = 1)
+dim(testing)
+```
+
+The training and testing sets contain 159 variables.
+
+## Clean data
+
+At first, we look the initial set of 159 variables:
+```{r, cache = TRUE, eval = TRUE}
+# Initial variables
+str(training)  # 159 variables
+```
+
+To start cleaning, we remove all the variables with more than 90% of NA values:
+```{r, cache = TRUE, eval = TRUE}
+# NA values
+variablesNAs <- numeric(ncol(training))
+for (i in 1:ncol(training)) {
+  sumNAs <- sum(is.na(training[, i]))
+  percentNAs <- sumNAs / nrow(training)
+  variablesNAs[i] <- percentNAs
+}
+# Number of variables with > 90% NAs
+sum(variablesNAs > 0.9)
+# Remove 67 variables with > 90% NAs
+training <- training[, -which(variablesNAs > 0.9)]
+testing <- testing[, -which(variablesNAs > 0.9)]
+dim(training)  # 92 variables
+dim(testing)  # 92 variables
+```
+
+The next step is discard the variables with many of their values near to zero:
+```{r, cache = TRUE, eval = TRUE}
+# Near zero values
+nzv <- nearZeroVar(training, saveMetrics = TRUE)
+# Number of variables with near zero values
+sum(nzv$nzv)
+# Remove 34 variables with near zero values
+training <- training[, -which(nzv$nzv)]
+```
+
+We also check for correlated predictos, but, at this point, there is no one left:
+```{r, cache = TRUE, eval = TRUE}
+# Correlated predictors
+variableClass <- numeric(ncol(training))
+for (i in 1:ncol(training)) { variableClass[i] <- class(training[, i]) }
+variablesCor <- cor(training[, which(variableClass %in% c("integer", "numeric"))])
+# Number of correlated predictors
+sum(abs(variablesCor[upper.tri(variablesCor)]) > .999)
+# No correlated predictors
+```
+
+The last variables to remove are the variables that collect the username and the time in which the values are collected:
+```{r, cache = TRUE, eval = TRUE}
+# Remove user_name and time variables
+variablesInd <- names(training) %in% c("user_name", "raw_timestamp_part_1",
+                       "raw_timestamp_part_2", "cvtd_timestamp", "num_window")
+training <- training[, -which(variablesInd)]
+
+# Final number of variables
+dim(training)  # 53 variables
+```
+
+At the end, we finish with a 53 variables, the variable to predict "classe" and 52 predictors that we will use to build our model.
+
+## Data splitting
+
+We split the training data in two data sets that can be used to build and test the model:
+```{r, cache = TRUE, eval = TRUE}
+# Get indexes of partition
+inTrain <- createDataPartition(y = training$classe, p = 0.75, list = FALSE)
+# Get partitions
+train1 <- training[inTrain, ]
+train2 <- training[-inTrain, ]
+dim(train1)
+dim(train2)
+```
+
+## Fit a model
+
+We ran several test, but, at the end, the best model founded is the one built it with the random forest algorithm:
+```{r, cache = TRUE, eval = FALSE}
+# Control train options
+fitControl <- trainControl(method = "none")
+# Train model
+set.seed(7740)  # set seed for reproducibility
+modelFit <- train(classe ~ ., data = train1, method = "rf", trcontrol = fitControl)
+modelFit
+```
+```{r, cache = TRUE, eval = TRUE, echo = FALSE}
+# Load previous built it model
+modelFit <- readRDS("modelFit-randomForest-03.Rds")
+```
+```{r, cache = TRUE, eval = TRUE}
+modelFit
+plot(modelFit, main = "Random Forest models")
+```
+
+The final model, with mtry = 27, has an accuracy of 0.9898, and we can check the most important variables in it:
+
+```{r, cache = TRUE, eval = TRUE}
+plot(varImp(modelFit), main = "Variable importance")
+```
+
+## Prediction
+
+We test our final model against the second part of the data splitted from the training data set:
+```{r, cache = TRUE, eval = TRUE}
+realvalues <- train2$classe
+prediction <- predict(modelFit, newdata = train2)
+confusionMatrix(prediction, realvalues)
+```
+
+The model has an accuracy of 0.9984 against the data splitted from the training data set, with an out of sample error of 0.0016.
+
+## Apply to test data
+
+```{r, cache = TRUE, eval = TRUE}
+predictTest <- predict(modelFit, newdata = testing)
+predictTest
+```
